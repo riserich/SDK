@@ -57,20 +57,16 @@ export function deserializeRiseMarket(data: Buffer): RiseMarketRaw {
   const tokenDecimals = data.readUInt8(offset); offset += 1;
   const cashEscrow = readPubkey(data, offset); offset += 32;
 
-  // Gov struct — GlobalBallotItem has: value(u32), min(u32), max(u32), stepMicroBasisPoints(u32) = 16 bytes each
-  const buyFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 16; // skip full GlobalBallotItem
-  const sellFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 16;
-  const borrowFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 16;
-  // floorRaiseCooldownSeconds
-  offset += 16;
-  // floorRaiseLiquidityBufferMicroBasisPoints
-  offset += 16;
-  // floorInvestmentMicroBasisPoints
-  offset += 16;
-  // priceCurveSensitivity: SimpleGlobalBallotItem (value u32 + min u32 + max u32 = 12 bytes)
-  offset += 12;
-  // priceCurveSensitivityChangeRateMicroBasisPoints: u32
-  offset += 4;
+  // GlobalBallotItem = u32 value | u32 min | u32 max | u32 step | u64 totalVotesUp | u64 totalVotesDown = 32 bytes
+  const buyFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 32;
+  const sellFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 32;
+  const borrowFeeMicroBasisPoints = data.readUInt32LE(offset); offset += 32;
+  offset += 32; // floorRaiseCooldownSeconds (GlobalBallotItem)
+  offset += 32; // floorRaiseLiquidityBufferMicroBasisPoints (GlobalBallotItem)
+  offset += 32; // floorInvestmentMicroBasisPoints (GlobalBallotItem)
+  // SimpleGlobalBallotItem = u64 totalVotesUp | u64 totalVotesDown = 16 bytes
+  offset += 16; // priceCurveSensitivity
+  offset += 4;  // priceCurveSensitivityChangeRateMicroBasisPoints (u32)
 
   // bump: [u8; 1]
   offset += 1;
