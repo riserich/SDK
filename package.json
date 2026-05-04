@@ -1,6 +1,6 @@
 {
   "name": "@riserich/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Rise Protocol SDK — quote, buy, and sell tokens on Solana bonding curves",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
