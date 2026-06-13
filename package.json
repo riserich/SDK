@@ -1,15 +1,23 @@
 {
   "name": "@riserich/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Rise Protocol SDK — quote, buy, and sell tokens on Solana bonding curves",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
   },
-  "keywords": ["solana", "defi", "bonding-curve", "rise", "sdk"],
+  "keywords": [
+    "solana",
+    "defi",
+    "bonding-curve",
+    "rise",
+    "sdk"
+  ],
   "license": "MIT",
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
