@@ -90,6 +90,12 @@ export interface RiseProMarketAccount {
   stateSeq: bigint;
   hingeX: bigint;
   reflectionBps: number;
+  /** Part of totalDebt drawn from the price reserve (excluded from floor backing). */
+  debtFromPrice: bigint;
+  /** Self-healing descent reference shift (Q64.64) and low-water mark / locked credit. */
+  yRef: bigint;
+  healLowX: bigint;
+  healLocked: bigint;
   // Reflexive fast-raise window + raise bookkeeping (crank inputs)
   peakPrice: bigint; // u128 Q64.64
   peakSlot: bigint; // u64
@@ -167,10 +173,18 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
   const stateSeq = r.u64();
   const hingeX = r.u64();
   const reflectionBps = r.u16(); // carved from the front of `reserved` (88 → 86)
+  const debtFromPrice = r.u64();
+  const yRef = r.i128();
+  const healLowX = r.u64();
+  const healLocked = r.u64();
 
   return {
     hingeX,
     reflectionBps,
+    debtFromPrice,
+    yRef,
+    healLowX,
+    healLocked,
     curveKind, tokenDecimals, flags, creator, mintToken, mintMain,
     feeConfigVersion, buyFeeMbps, sellFeeMbps, borrowFeeMbps,
     feesTeam, feesCreator, feesFloor, qMaxBps, charParams,

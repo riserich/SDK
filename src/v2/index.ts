@@ -11,6 +11,7 @@ import {
 } from "@solana/web3.js";
 import {
   DEFAULT_V2_PROGRAM_ID,
+  DEVNET_V2_PROGRAM_ID,
   setV2ProgramId,
   v2ProgramId,
   V2_COMPUTE_UNIT_LIMIT,
@@ -248,4 +249,4 @@ export class RiseProSDK {
   }
 }
 
-export { DEFAULT_V2_PROGRAM_ID, v2ProgramId, setV2ProgramId, PDA_V2 };
+export { DEFAULT_V2_PROGRAM_ID, DEVNET_V2_PROGRAM_ID, v2ProgramId, setV2ProgramId, PDA_V2 };

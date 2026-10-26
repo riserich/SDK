@@ -1,9 +1,12 @@
 // Rise Pro (v2) — program id and instruction discriminators.
-// The program id is injectable: devnet today, mainnet at launch.
+// The program id defaults to mainnet; pass `programId` or call setV2ProgramId for devnet.
 import { PublicKey } from "@solana/web3.js";
 
 export const DEFAULT_V2_PROGRAM_ID = new PublicKey(
-  "9nJ9wghEHY8bnsJQYrqV77uC9y4ccFHcCT1XyJxAkBVR", // devnet
+  "RiseP9yY3UnMxd1df7mgGJiR39frg9QGsr1ro3zxrDq", // mainnet
+);
+export const DEVNET_V2_PROGRAM_ID = new PublicKey(
+  "9nJ9wghEHY8bnsJQYrqV77uC9y4ccFHcCT1XyJxAkBVR",
 );
 
 let programId = DEFAULT_V2_PROGRAM_ID;
@@ -11,7 +14,7 @@ let programId = DEFAULT_V2_PROGRAM_ID;
 export function setV2ProgramId(pk: PublicKey): void { programId = pk; }
 export function v2ProgramId(): PublicKey { return programId; }
 
-export const V2_COMPUTE_UNIT_LIMIT = 300_000; // expo buys measured <= 240k CU
+export const V2_COMPUTE_UNIT_LIMIT = 600_000;
 export const V2_COMPUTE_UNIT_PRICE = 50_000; // micro-lamports
 
 // sha256("global:<name>")[..8] — copied from the backend's verified table.

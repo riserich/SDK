@@ -217,6 +217,38 @@ export class HingedExponentialCharacteristic implements Characteristic {
   }
 }
 
+/** init_market.rs creation checks for the hinged-exponential family
+ *  (Sherlock #51). Throws "InvalidCurveParams" when the price math cannot be
+ *  built from the params, "CurveCapReachable" when the exp computation wall
+ *  (u = k·d = 32) can be reached with less than 2^63 raw collateral — a buy
+ *  there would be capped by curve overflow and now reverts. Linear: no-op. */
+export function assertCurveCreatable(
+  curveKind: number,
+  charParams: readonly (bigint | string)[],
+  hingeX: bigint | string,
+): void {
+  if (curveKind !== CURVE_KIND_HINGED_EXP) return;
+  const [p0, m, g2, k] = charParams.map((v) => BigInt(v));
+  const hinge = BigInt(hingeX);
+  let c: HingedExponentialCharacteristic;
+  try {
+    c = new HingedExponentialCharacteristic(p0, m, g2, k, hinge);
+  } catch {
+    throw new CurveMathError("InvalidCurveParams");
+  }
+  const d = (32n << 96n) / k;
+  if (d > U64_MAX) return;
+  const xLim = hinge + d;
+  if (xLim > U64_MAX) return;
+  let cost: bigint;
+  try {
+    cost = c.area(xLim);
+  } catch {
+    return; // the wall costs more than u128 can express — unreachable
+  }
+  if (ceilQ64(cost) < 1n << 63n) throw new CurveMathError("CurveCapReachable");
+}
+
 // ---------------------------------------------------------------------------
 // Overlay: floor + ramp over the characteristic (curve/overlay.rs)
 // ---------------------------------------------------------------------------
@@ -318,6 +350,9 @@ export class Overlay<C extends Characteristic> {
       if (fits) lo = mid;
       else hi = mid - 1n;
     }
+    // curve.rs::bisect_fill (Sherlock #51): a fill capped by curve overflow,
+    // not by cash, reverts — evaluating the next token throws MathOverflow.
+    if (lo < remaining) this.effArea(supply + lo + 1n);
     const cost = ceilQ64(this.cost(supply, supply + lo));
     return { tokens: lo, cost };
   }
@@ -501,13 +536,9 @@ export function overlayOf(state: V2CurveState): Overlay<Characteristic> {
   );
 }
 
-/**
- * Parse the curve state out of a market DB row. Expects the v2_* columns as
- * decimal strings (NUMERIC / NUMERIC[]) — see the pg type-parser note in
- * database.ts: NUMERIC[] must reach us as strings, never floats.
- */
-// (curveStateFromRow lives in the backend — the SDK builds V2CurveState
-// from a decoded Market account instead: see ./quote.ts::curveStateFromMarket)
+// ---------------------------------------------------------------------------
+// Quotes (mirror of buy.rs / sell.rs flow)
+// ---------------------------------------------------------------------------
 
 export interface BuyQuote {
   fee: FeeLegs;
@@ -572,6 +603,8 @@ export class BareQuotable {
       if (fits) lo = mid;
       else hi = mid - 1n;
     }
+    // curve.rs::bisect_fill (Sherlock #51) — see Overlay.tokensForCash.
+    if (lo < remaining) this.characteristic.areaBetween(supply, supply + lo + 1n);
     const cost = ceilQ64(this.cost(supply, supply + lo));
     return { tokens: lo, cost };
   }
@@ -590,6 +623,30 @@ export function buyCurveOf(
     : overlayOf(state);
 }
 
+/** Pre-trade ledgers the buy-side F* cap reads (state/market.rs::floor_backing). */
+export interface BackingLedgers {
+  floorReserve: bigint;
+  totalDebt: bigint;
+  debtFromPrice?: bigint;
+}
+
+/** buy.rs / leverage_buy.rs (Sherlock #49): a buy may not take tokens below the
+ *  crankable floor F* = max(buffered floor_backing / supply, floor). Returns the
+ *  token cap for `net`, or null when there is no supply (no cap). */
+export function crankableFloorCap(
+  state: V2CurveState,
+  net: bigint,
+  ledgers: BackingLedgers,
+): bigint | null {
+  if (state.tokenSupply === 0n) return null;
+  const floorDrawn = ledgers.totalDebt - (ledgers.debtFromPrice ?? 0n);
+  const backing = ledgers.floorReserve + (floorDrawn > 0n ? floorDrawn : 0n);
+  const fromBacking = ((backing * 9_950n) / 10_000n << 64n) / state.tokenSupply;
+  const fStar = fromBacking > state.floor ? fromBacking : state.floor;
+  const cap = (net << 64n) / fStar;
+  return cap > U64_MAX ? U64_MAX : cap;
+}
+
 export function quoteBuy(
   state: V2CurveState,
   cashIn: bigint,
@@ -597,6 +654,7 @@ export function quoteBuy(
   feesCreatorBps: bigint,
   feesTeamBps: bigint,
   reflectionBps: bigint = 0n,
+  ledgers?: BackingLedgers,
 ): BuyQuote {
   const curve = buyCurveOf(state);
   const fee = splitFee(feesCreatorBps, feesTeamBps, cashIn, buyFeeMbps);
@@ -608,13 +666,19 @@ export function quoteBuy(
       : 0n;
   const net = cashIn - fee.total - reflection;
   if (net <= 0n) throw new CurveMathError("DustTrade");
-  const { tokens, cost } = curve.tokensForCash(state.tokenSupply, net);
+  const fill = curve.tokensForCash(state.tokenSupply, net);
+  let tokens = fill.tokens;
+  if (ledgers) {
+    const cap = crankableFloorCap(state, net, ledgers);
+    if (cap !== null && cap < tokens) tokens = cap;
+  }
   return {
     fee,
     net,
     reflection,
     tokenOut: tokens,
-    spent: cost,
+    // The program keeps the curve fill's cost even when the cap binds.
+    spent: fill.cost,
     spotAfter: curve.effPrice(state.tokenSupply + tokens),
   };
 }
@@ -639,6 +703,45 @@ export interface SellLedgers {
   totalDebt: bigint;
 }
 
+/** leverage_sell.rs: the repay refills the reserves BEFORE the sale is clamped —
+ *  floor first up to ceil(F·S), the rest to the price reserve. */
+export function postRepayLedgers(
+  state: V2CurveState,
+  ledgers: SellLedgers,
+  repaid: bigint,
+): SellLedgers {
+  const requiredLive = ceilQ64(state.floor * state.tokenSupply);
+  const floorGap =
+    requiredLive > ledgers.floorReserve ? requiredLive - ledgers.floorReserve : 0n;
+  const toFloor = repaid < floorGap ? repaid : floorGap;
+  return {
+    floorReserve: ledgers.floorReserve + toFloor,
+    priceReserve: ledgers.priceReserve + (repaid - toFloor),
+    totalDebt: ledgers.totalDebt > repaid ? ledgers.totalDebt - repaid : 0n,
+  };
+}
+
+/** util.rs::fee_feedback_extension (Sherlock #68): a clamped sale's fee_floor
+ *  comes back to the floor in the same tx, so the clamp is extended by it —
+ *  fixed point of d = split_fee(capacity + d).floor − 2, capped at shortfall. */
+export function feeFeedbackExtension(
+  feesCreatorBps: bigint,
+  feesTeamBps: bigint,
+  rateMbps: bigint,
+  capacity: bigint,
+  shortfall: bigint,
+): bigint {
+  let delta = 0n;
+  for (let i = 0; i < 32; i++) {
+    const floorLeg = splitFee(feesCreatorBps, feesTeamBps, capacity + delta, rateMbps).floor;
+    let next = floorLeg > 2n ? floorLeg - 2n : 0n;
+    if (next > shortfall) next = shortfall;
+    if (next <= delta) break;
+    delta = next;
+  }
+  return delta;
+}
+
 /** gross rounded down by the curve → clamped to the ledgers (never below the
  *  floor value of the tokens, per Law 1) → fee on the clamped gross → payout. */
 export function quoteSell(
@@ -659,7 +762,16 @@ export function quoteSell(
       requiredAfter > ledgers.totalDebt ? requiredAfter - ledgers.totalDebt : 0n;
     const maxFloorDraw =
       ledgers.floorReserve > mustRetain ? ledgers.floorReserve - mustRetain : 0n;
-    const capacity = maxFloorDraw + ledgers.priceReserve;
+    let capacity = maxFloorDraw + ledgers.priceReserve;
+    if (grossCurve > capacity) {
+      capacity += feeFeedbackExtension(
+        feesCreatorBps,
+        feesTeamBps,
+        sellFeeMbps,
+        capacity,
+        grossCurve - capacity,
+      );
+    }
     if (capacity < gross) gross = capacity;
   }
   const fee = splitFee(feesCreatorBps, feesTeamBps, gross, sellFeeMbps);

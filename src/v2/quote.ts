@@ -51,6 +51,7 @@ export function quoteBuy(m: RiseProMarketAccount, cashIn: bigint): BuyQuote {
     BigInt(m.feesCreator),
     BigInt(m.feesTeam),
     BigInt(m.reflectionBps),
+    { floorReserve: m.floorReserve, totalDebt: m.totalDebt, debtFromPrice: m.debtFromPrice },
   );
 }
 
