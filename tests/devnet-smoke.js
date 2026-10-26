@@ -10,7 +10,7 @@ const { PublicKey, VersionedTransaction, Connection } = require('@solana/web3.js
 
 async function run() {
   const rpc = process.env.RPC;
-  const sdk = new RiseProSDK({ rpcUrl: rpc });
+  const sdk = new RiseProSDK({ rpcUrl: rpc, programId: require('../dist/index.js').v2.DEVNET_V2_PROGRAM_ID });
   const mint = new PublicKey('GSXStgjph4V4Eg98rfygTxgPyWKP3RGYsWD9PQ6rise'); // SAHAND
   const wallet = new PublicKey('7KMCpqVch6huFr1GmEk1KY8w5htxwCuNwuX6wSQm7doQ');
 
@@ -42,7 +42,7 @@ async function run() {
   }
 
   // 5. façade : dispatch auto
-  const rise = new Rise({ rpcUrl: rpc });
+  const rise = new Rise({ rpcUrl: rpc, v2ProgramId: require('../dist/index.js').v2.DEVNET_V2_PROGRAM_ID });
   const fm = await rise.getMarket(mint);
   console.log('façade getMarket ✓ version détectée:', fm.version);
 }
@@ -51,7 +51,7 @@ async function run() {
 
 async function run2() {
   const rpc = process.env.RPC;
-  const sdk = new RiseProSDK({ rpcUrl: rpc });
+  const sdk = new RiseProSDK({ rpcUrl: rpc, programId: require('../dist/index.js').v2.DEVNET_V2_PROGRAM_ID });
   const conn = new Connection(rpc, 'confirmed');
   const wallet = new PublicKey('7KMCpqVch6huFr1GmEk1KY8w5htxwCuNwuX6wSQm7doQ');
   const ricardo = await sdk.getMarket(new PublicKey('8NQCZn8Z5ZmshkHifeEWkgFLsUCBZV9G9ZzF3x648Fi'));
