@@ -276,3 +276,10 @@ export { MarketData, QuoteResult } from "./types";
 export { PDA } from "./pda";
 export * from "./constants";
 export { calculatePrice, calculateTokensFromCash, calculateCashFromTokens } from "./quote";
+
+// ── Rise Pro (v2) + version-agnostic facade ────────────────────────────────
+export * as v2 from "./v2";
+export { RiseProSDK } from "./v2";
+export type { MarketV2, RiseProSDKConfig } from "./v2";
+export { Rise } from "./facade";
+export type { RiseVersion, RiseFacadeConfig } from "./facade";

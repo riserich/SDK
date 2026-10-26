@@ -9,7 +9,9 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test:devnet": "node tests/devnet-smoke.js",
+    "test:parity": "node tests/devnet-parity.js"
   },
   "keywords": [
     "solana",
