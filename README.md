@@ -136,14 +136,6 @@ const sdk = new RiseProSDK({ rpcUrl: DEVNET_RPC, programId: v2.DEVNET_V2_PROGRAM
 const rise = new Rise({ rpcUrl: DEVNET_RPC, v2ProgramId: v2.DEVNET_V2_PROGRAM_ID });
 ```
 
-### Tests (devnet, simulation only — nothing is signed or sent)
-
-```bash
-npm run build
-RPC=<devnet rpc url> npm run test:parity   # quotes vs real program results, to the raw unit
-RPC=<devnet rpc url> npm run test:devnet   # every builder simulates successfully
-```
-
 ---
 
 ## v1 — `RiseSDK`
