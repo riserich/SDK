@@ -58,6 +58,8 @@ export interface RiseProMarketAccount {
   creator: string;
   mintToken: string;
   mintMain: string;
+  /** Token program owning `mintMain` (SPL Token or Token-2022). */
+  tokenProgramMain: string;
   feeConfigVersion: number;
   buyFeeMbps: number;
   sellFeeMbps: number;
@@ -125,7 +127,8 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
   const creator = r.pk();
   const mintToken = r.pk();
   const mintMain = r.pk();
-  r.pk(); r.pk(); r.pk(); r.pk(); // token_program_main, vault, collateral_vault, creator_claim
+  const tokenProgramMain = r.pk();
+  r.pk(); r.pk(); r.pk(); // vault, collateral_vault, creator_claim
   r.skip(3); // vault_bumps
   const feeConfigVersion = r.u32();
   const buyFeeMbps = r.u32();
@@ -185,7 +188,7 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
     yRef,
     healLowX,
     healLocked,
-    curveKind, tokenDecimals, flags, creator, mintToken, mintMain,
+    curveKind, tokenDecimals, flags, creator, mintToken, mintMain, tokenProgramMain,
     feeConfigVersion, buyFeeMbps, sellFeeMbps, borrowFeeMbps,
     feesTeam, feesCreator, feesFloor, qMaxBps, charParams,
     floorPrice, rampStartX, rampScalar, x2Cached, mX1Cached, yShift,

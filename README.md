@@ -71,6 +71,8 @@ console.log("spot:", sdk.spotPriceNumber(market)); // collateral per token
 
 All v2 amounts are **raw `bigint`** (smallest units). A v2 token has the **same decimals as its collateral** (USDC 6, SOL 9, …).
 
+Collaterals can be SPL Token or Token-2022 mints (e.g. tokenized stocks). `getMarket` reads the collateral's token program from the market account (`market.tokenProgramMainPk`) and every builder uses it, so nothing changes on the caller's side.
+
 ```typescript
 const buy = sdk.quoteBuy(market, 10_000_000n);   // 10 USDC in
 buy.tokenOut;    // tokens received

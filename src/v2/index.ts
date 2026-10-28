@@ -64,6 +64,8 @@ export interface MarketV2 extends RiseProMarketAccount {
   /** `mintToken` / `mintMain` as PublicKeys (the decoder stores base58 strings). */
   mintTokenPk: PublicKey;
   mintMainPk: PublicKey;
+  /** Token program owning `mintMain` (SPL Token or Token-2022), read from the market account. */
+  tokenProgramMainPk: PublicKey;
   version: 2;
 }
 
@@ -104,6 +106,7 @@ export class RiseProSDK {
       address,
       mintTokenPk: new PublicKey(decoded.mintToken),
       mintMainPk: new PublicKey(decoded.mintMain),
+      tokenProgramMainPk: new PublicKey(decoded.tokenProgramMain),
       version: 2,
     };
   }
@@ -158,7 +161,7 @@ export class RiseProSDK {
   ): Promise<VersionedTransaction> {
     const { ixs } = buildBuy(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
-      toBig(cashIn).toString(), toBig(minTokenOut).toString(),
+      toBig(cashIn).toString(), toBig(minTokenOut).toString(), market.tokenProgramMainPk,
     );
     return this.compile(wallet, ixs);
   }
@@ -171,7 +174,7 @@ export class RiseProSDK {
   ): Promise<VersionedTransaction> {
     const { ixs } = buildSell(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
-      toBig(tokenIn).toString(), toBig(minCashOut).toString(),
+      toBig(tokenIn).toString(), toBig(minCashOut).toString(), market.tokenProgramMainPk,
     );
     return this.compile(wallet, ixs);
   }
@@ -199,7 +202,7 @@ export class RiseProSDK {
     wallet: PublicKey,
     amount: Amount,
   ): Promise<VersionedTransaction> {
-    const { ixs } = buildBorrow(wallet, market.address, market.mintMainPk, toBig(amount).toString());
+    const { ixs } = buildBorrow(wallet, market.address, market.mintMainPk, toBig(amount).toString(), market.tokenProgramMainPk);
     return this.compile(wallet, ixs);
   }
 
@@ -208,7 +211,7 @@ export class RiseProSDK {
     wallet: PublicKey,
     amount: Amount,
   ): Promise<VersionedTransaction> {
-    const { ixs } = buildRepay(wallet, market.address, market.mintMainPk, toBig(amount).toString());
+    const { ixs } = buildRepay(wallet, market.address, market.mintMainPk, toBig(amount).toString(), market.tokenProgramMainPk);
     return this.compile(wallet, ixs);
   }
 
@@ -222,6 +225,7 @@ export class RiseProSDK {
     const { ixs } = buildLeverageBuy(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(cashIn).toString(), toBig(borrowAmount).toString(), toBig(minTokenOut).toString(),
+      market.tokenProgramMainPk,
     );
     return this.compile(wallet, ixs);
   }
@@ -236,6 +240,7 @@ export class RiseProSDK {
     const { ixs } = buildLeverageSell(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(collateralIn).toString(), toBig(decreaseDebtBy).toString(), toBig(minCashOut).toString(),
+      market.tokenProgramMainPk,
     );
     return this.compile(wallet, ixs);
   }
@@ -244,7 +249,7 @@ export class RiseProSDK {
     market: MarketV2,
     creator: PublicKey,
   ): Promise<VersionedTransaction> {
-    const { ixs } = buildClaimCreatorFees(creator, market.address, market.mintMainPk);
+    const { ixs } = buildClaimCreatorFees(creator, market.address, market.mintMainPk, market.tokenProgramMainPk);
     return this.compile(creator, ixs);
   }
 }
