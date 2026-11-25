@@ -1,9 +1,9 @@
-// The nine user-facing Rise Pro instruction builders — ported verbatim from
+// The user-facing Rise Pro instruction builders — ported verbatim from
 // the backend (account orders proven by devnet simulation). Each returns
 // { ix, ixs, pdas }: use `ixs` (it carries the WSOL wrap/unwrap legs when the
 // collateral is native SOL).
 import { PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
 import { SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { DISC } from "../constants";
@@ -316,5 +316,89 @@ export function buildClaimCreatorFees(
     ix,
     ixs: [ix, ...unwrapNativeIxs(creator, mintMain, tokenProgramMain)],
     pdas: { creatorClaim: creatorClaimPda(market).toBase58(), destination: destination.toBase58() },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Launch markets (market_kind = 1) — SOL-only, tokens come out of / go back to
+// the market inventory (the collateral_vault slot), no reflection vault.
+// ---------------------------------------------------------------------------
+
+/** `launch_buy`: wrap → buy → unwrap. The unwrap also refunds the unused part
+ *  of `cashIn` when the buy fills the sale cap (partial fill). */
+export function buildLaunchBuy(
+  buyer: PublicKey,
+  market: PublicKey,
+  mintToken: PublicKey,
+  cashIn: BN | number | string,
+  minTokenOut: BN | number | string,
+) {
+  const buyerCash = cashAta(NATIVE_MINT, buyer, TOKEN_PROGRAM_ID);
+  const buyerToken = tokenAta(mintToken, buyer);
+  const ix = ixOf(
+    [
+      RW(buyer, true),
+      RW(market),
+      RW(vaultPda(market)),
+      RW(collateralVaultPda(market)), // inventory
+      RW(creatorClaimPda(market)),
+      RW(teamVaultPda(NATIVE_MINT)),
+      RO(NATIVE_MINT),
+      RO(mintToken),
+      RW(buyerCash),
+      RW(buyerToken),
+      RO(TOKEN_PROGRAM_ID),
+      RO(TOKEN_2022_PROGRAM_ID),
+      RO(ASSOCIATED_TOKEN_PROGRAM_ID),
+      RO(SystemProgram.programId),
+      ...eventCpi(),
+    ],
+    Buffer.concat([DISC.launch_buy, u64le(cashIn), u64le(minTokenOut)]),
+  );
+  return {
+    ix,
+    ixs: [
+      ...wrapNativeIxs(buyer, NATIVE_MINT, cashIn, TOKEN_PROGRAM_ID),
+      ix,
+      ...unwrapNativeIxs(buyer, NATIVE_MINT, TOKEN_PROGRAM_ID),
+    ],
+    pdas: { buyerCash: buyerCash.toBase58(), buyerToken: buyerToken.toBase58() },
+  };
+}
+
+/** `launch_sell`: sell → unwrap (the program creates the WSOL ATA if needed). */
+export function buildLaunchSell(
+  seller: PublicKey,
+  market: PublicKey,
+  mintToken: PublicKey,
+  tokenIn: BN | number | string,
+  minCashOut: BN | number | string,
+) {
+  const sellerCash = cashAta(NATIVE_MINT, seller, TOKEN_PROGRAM_ID);
+  const sellerToken = tokenAta(mintToken, seller);
+  const ix = ixOf(
+    [
+      RW(seller, true),
+      RW(market),
+      RW(vaultPda(market)),
+      RW(collateralVaultPda(market)), // inventory
+      RW(creatorClaimPda(market)),
+      RW(teamVaultPda(NATIVE_MINT)),
+      RO(NATIVE_MINT),
+      RO(mintToken),
+      RW(sellerCash),
+      RW(sellerToken),
+      RO(TOKEN_PROGRAM_ID),
+      RO(TOKEN_2022_PROGRAM_ID),
+      RO(ASSOCIATED_TOKEN_PROGRAM_ID),
+      RO(SystemProgram.programId),
+      ...eventCpi(),
+    ],
+    Buffer.concat([DISC.launch_sell, u64le(tokenIn), u64le(minCashOut)]),
+  );
+  return {
+    ix,
+    ixs: [ix, ...unwrapNativeIxs(seller, NATIVE_MINT, TOKEN_PROGRAM_ID)],
+    pdas: { sellerCash: sellerCash.toBase58(), sellerToken: sellerToken.toBase58() },
   };
 }

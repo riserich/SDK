@@ -18,6 +18,9 @@ export const reflectionVaultPda = (market: PublicKey, pid: PublicKey = v2Program
   PublicKey.findProgramAddressSync([seed("reflection_vault"), market.toBuffer()], pid)[0];
 export const teamVaultPda = (mintMain: PublicKey, pid: PublicKey = v2ProgramId()) =>
   PublicKey.findProgramAddressSync([seed("team_vault"), mintMain.toBuffer()], pid)[0];
+/** Raydium CPMM pool of a graduated launch market. */
+export const launchPoolPda = (market: PublicKey, pid: PublicKey = v2ProgramId()) =>
+  PublicKey.findProgramAddressSync([seed("launch_pool"), market.toBuffer()], pid)[0];
 export const eventAuthorityPda = (pid: PublicKey = v2ProgramId()) =>
   PublicKey.findProgramAddressSync([seed("__event_authority")], pid)[0];
 
@@ -29,5 +32,6 @@ export const PDA_V2 = {
   position: positionPda,
   reflectionVault: reflectionVaultPda,
   teamVault: teamVaultPda,
+  launchPool: launchPoolPda,
   eventAuthority: eventAuthorityPda,
 };

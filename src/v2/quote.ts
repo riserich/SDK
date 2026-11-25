@@ -13,6 +13,25 @@ import {
   SellLedgers,
 } from "./math";
 import { RiseProMarketAccount } from "./deserialize";
+import {
+  isLaunchMarket,
+  launchSpotPrice,
+  quoteLaunchBuy,
+  quoteLaunchSell,
+  LaunchBuyQuote,
+} from "./launch";
+
+/** A market plus, for launch markets, the SPL balance of its vault (launch
+ *  markets back the floor with `vault.amount`, not `floor_reserve`).
+ *  `RiseProSDK.getMarket` fills `vaultBalance` automatically. */
+export type QuotableMarket = RiseProMarketAccount & { vaultBalance?: bigint };
+
+function launchVault(m: QuotableMarket): bigint {
+  if (m.vaultBalance === undefined) {
+    throw new Error("launch market quote needs `vaultBalance` (use RiseProSDK.getMarket)");
+  }
+  return m.vaultBalance;
+}
 
 /** Decoded Market account → the curve state the mirror evaluates. */
 export function curveStateFromMarket(m: RiseProMarketAccount): V2CurveState {
@@ -33,6 +52,7 @@ export function curveStateFromMarket(m: RiseProMarketAccount): V2CurveState {
 
 /** Spot price in Q64.64 (collateral-raw per token-raw). */
 export function spotPrice(m: RiseProMarketAccount): bigint {
+  if (isLaunchMarket(m)) return launchSpotPrice(m);
   return spotPriceQ64(curveStateFromMarket(m));
 }
 
@@ -42,8 +62,11 @@ export function spotPriceNumber(m: RiseProMarketAccount): number {
   return Number(spotPrice(m)) / 2 ** 64;
 }
 
-/** Quote an exact-cash-in buy. `cashIn` in raw collateral units. */
-export function quoteBuy(m: RiseProMarketAccount, cashIn: bigint): BuyQuote {
+/** Quote an exact-cash-in buy. `cashIn` in raw collateral units. Launch
+ *  markets return a LaunchBuyQuote (`cashUsed` / `capHit` for the partial fill
+ *  at the sale cap). */
+export function quoteBuy(m: QuotableMarket, cashIn: bigint): BuyQuote | LaunchBuyQuote {
+  if (isLaunchMarket(m)) return quoteLaunchBuy(m, cashIn, launchVault(m));
   return quoteBuyState(
     curveStateFromMarket(m),
     cashIn,
@@ -57,7 +80,8 @@ export function quoteBuy(m: RiseProMarketAccount, cashIn: bigint): BuyQuote {
 
 /** Quote an exact-token-in sell. The Law-1 exit clamp is applied using the
  *  market's own ledgers, exactly like sell.rs. */
-export function quoteSell(m: RiseProMarketAccount, tokenIn: bigint): SellQuote {
+export function quoteSell(m: QuotableMarket, tokenIn: bigint): SellQuote {
+  if (isLaunchMarket(m)) return quoteLaunchSell(m, tokenIn, launchVault(m));
   const ledgers: SellLedgers = {
     floorReserve: m.floorReserve,
     priceReserve: m.priceReserve,

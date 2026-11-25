@@ -28,4 +28,17 @@ export const DISC = {
   leverage_buy: Buffer.from([113, 153, 55, 91, 207, 24, 175, 171]),
   leverage_sell: Buffer.from([158, 249, 120, 75, 3, 70, 48, 108]),
   claim_creator_fees: Buffer.from([0, 23, 125, 234, 156, 118, 134, 89]),
+  launch_buy: Buffer.from([207, 238, 3, 20, 23, 255, 115, 170]),
+  launch_sell: Buffer.from([72, 99, 58, 220, 83, 244, 8, 82]),
 };
+
+// Launch mode — fixed-supply markets sold on an exponential curve up to
+// `sale_cap`, then migrated to a Raydium CPMM pool.
+/** `Market.market_kind`: 0 = classic curve market, 1 = launch market. */
+export const MARKET_KIND_CURVE = 0;
+export const MARKET_KIND_LAUNCH = 1;
+/** `Market.curve_kind` of launch markets (P0·e^{k·x}). */
+export const CURVE_KIND_LAUNCH_EXP = 3;
+/** `Market.launch_phase`. Only BONDING trades on the program; GRADUATING waits
+ *  for the migration crank; GRADUATED trades on the Raydium pool. */
+export const LAUNCH_PHASE = { BONDING: 0, GRADUATING: 1, GRADUATED: 2 } as const;

@@ -16,8 +16,9 @@ import {
   v2ProgramId,
   V2_COMPUTE_UNIT_LIMIT,
   V2_COMPUTE_UNIT_PRICE,
+  LAUNCH_PHASE,
 } from "./constants";
-import { marketPda, positionPda, PDA_V2 } from "./pda";
+import { marketPda, positionPda, vaultPda, launchPoolPda, PDA_V2 } from "./pda";
 import {
   decodeRiseProMarket,
   decodeRiseProPosition,
@@ -25,6 +26,7 @@ import {
   RiseProPositionAccount,
 } from "./deserialize";
 import { quoteBuy, quoteSell, spotPrice, spotPriceNumber } from "./quote";
+import { isLaunchMarket } from "./launch";
 import {
   buildBuy,
   buildSell,
@@ -35,13 +37,17 @@ import {
   buildLeverageBuy,
   buildLeverageSell,
   buildClaimCreatorFees,
+  buildLaunchBuy,
+  buildLaunchSell,
 } from "./transactions/builders";
 
 export * from "./constants";
 export * from "./pda";
 export * from "./deserialize";
 export * from "./math";
+export * from "./launch";
 export {
+  QuotableMarket,
   curveStateFromMarket,
   spotPrice,
   spotPriceNumber,
@@ -66,6 +72,9 @@ export interface MarketV2 extends RiseProMarketAccount {
   mintMainPk: PublicKey;
   /** Token program owning `mintMain` (SPL Token or Token-2022), read from the market account. */
   tokenProgramMainPk: PublicKey;
+  /** Launch markets only: SPL balance of the market vault (raw lamports),
+   *  needed by launch quotes. Undefined on classic curve markets. */
+  vaultBalance?: bigint;
   version: 2;
 }
 
@@ -101,12 +110,20 @@ export class RiseProSDK {
       decoded = info ? decodeRiseProMarket(info.data) : null;
     }
     if (!decoded) throw new Error(`RiseProSDK: no v2 market found for ${mintOrMarket.toBase58()}`);
+    // Launch markets back the floor with the vault's SPL balance (one extra
+    // read). The vault is closed at graduation, so a missing vault reads as 0.
+    let vaultBalance: bigint | undefined;
+    if (isLaunchMarket(decoded)) {
+      const vault = await this.connection.getAccountInfo(vaultPda(address));
+      vaultBalance = vault ? vault.data.readBigUInt64LE(64) : 0n;
+    }
     return {
       ...decoded,
       address,
       mintTokenPk: new PublicKey(decoded.mintToken),
       mintMainPk: new PublicKey(decoded.mintMain),
       tokenProgramMainPk: new PublicKey(decoded.tokenProgramMain),
+      vaultBalance,
       version: 2,
     };
   }
@@ -153,12 +170,38 @@ export class RiseProSDK {
     return new VersionedTransaction(msg);
   }
 
+  /** Launch markets trade on the program only while bonding (phase 0). */
+  private assertLaunchTradable(market: MarketV2): void {
+    if (market.launchPhase === LAUNCH_PHASE.GRADUATING) {
+      throw new Error("RiseProSDK: launch market sale cap filled, graduation to Raydium pending — trading paused");
+    }
+    if (market.launchPhase === LAUNCH_PHASE.GRADUATED) {
+      throw new Error(
+        `RiseProSDK: launch market graduated — trade on its Raydium CPMM pool ${launchPoolPda(market.address).toBase58()}`,
+      );
+    }
+  }
+
+  /** Deposit / borrow / leverage do not exist on launch markets (the program
+   *  rejects them with NotForLaunchMarket, 7012). Creator fees are claimed as usual. */
+  private assertNotLaunch(market: MarketV2, what: string): void {
+    if (isLaunchMarket(market)) throw new Error(`RiseProSDK: ${what} is not available on launch markets`);
+  }
+
   async buildBuyTransaction(
     market: MarketV2,
     wallet: PublicKey,
     cashIn: Amount,
     minTokenOut: Amount = 0n,
   ): Promise<VersionedTransaction> {
+    if (isLaunchMarket(market)) {
+      this.assertLaunchTradable(market);
+      const { ixs } = buildLaunchBuy(
+        wallet, market.address, market.mintTokenPk,
+        toBig(cashIn).toString(), toBig(minTokenOut).toString(),
+      );
+      return this.compile(wallet, ixs);
+    }
     const { ixs } = buildBuy(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(cashIn).toString(), toBig(minTokenOut).toString(), market.tokenProgramMainPk,
@@ -172,6 +215,14 @@ export class RiseProSDK {
     tokenIn: Amount,
     minCashOut: Amount = 0n,
   ): Promise<VersionedTransaction> {
+    if (isLaunchMarket(market)) {
+      this.assertLaunchTradable(market);
+      const { ixs } = buildLaunchSell(
+        wallet, market.address, market.mintTokenPk,
+        toBig(tokenIn).toString(), toBig(minCashOut).toString(),
+      );
+      return this.compile(wallet, ixs);
+    }
     const { ixs } = buildSell(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(tokenIn).toString(), toBig(minCashOut).toString(), market.tokenProgramMainPk,
@@ -184,6 +235,7 @@ export class RiseProSDK {
     wallet: PublicKey,
     amount: Amount,
   ): Promise<VersionedTransaction> {
+    this.assertNotLaunch(market, "deposit");
     const { ix } = buildDeposit(wallet, market.address, market.mintTokenPk, toBig(amount).toString());
     return this.compile(wallet, [ix]);
   }
@@ -202,6 +254,7 @@ export class RiseProSDK {
     wallet: PublicKey,
     amount: Amount,
   ): Promise<VersionedTransaction> {
+    this.assertNotLaunch(market, "borrow");
     const { ixs } = buildBorrow(wallet, market.address, market.mintMainPk, toBig(amount).toString(), market.tokenProgramMainPk);
     return this.compile(wallet, ixs);
   }
@@ -222,6 +275,7 @@ export class RiseProSDK {
     borrowAmount: Amount,
     minTokenOut: Amount = 0n,
   ): Promise<VersionedTransaction> {
+    this.assertNotLaunch(market, "leverage buy");
     const { ixs } = buildLeverageBuy(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(cashIn).toString(), toBig(borrowAmount).toString(), toBig(minTokenOut).toString(),
@@ -237,6 +291,7 @@ export class RiseProSDK {
     decreaseDebtBy: Amount,
     minCashOut: Amount = 0n,
   ): Promise<VersionedTransaction> {
+    this.assertNotLaunch(market, "leverage sell");
     const { ixs } = buildLeverageSell(
       wallet, market.address, market.mintTokenPk, market.mintMainPk,
       toBig(collateralIn).toString(), toBig(decreaseDebtBy).toString(), toBig(minCashOut).toString(),
