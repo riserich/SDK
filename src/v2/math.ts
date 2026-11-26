@@ -65,7 +65,7 @@ export interface Characteristic {
 }
 
 /** Trait-default mirror: `area(hi) − area(lo)`, underflow = MathOverflow. */
-function defaultAreaBetween(c: Characteristic, lo: bigint, hi: bigint): bigint {
+export function defaultAreaBetween(c: Characteristic, lo: bigint, hi: bigint): bigint {
   const aHi = c.area(hi);
   const aLo = c.area(lo);
   if (aHi < aLo) throw new CurveMathError("MathOverflow");
