@@ -97,6 +97,30 @@ const sellTx = await sdk.buildSellTransaction(market, wallet, 1_000_000n, (sell.
 
 SOL markets are handled automatically (wrap on buy, unwrap on sell).
 
+### Launch markets
+
+Launch markets (`market.marketKind === 1`) are fixed-supply SOL tokens. They sell on an exponential curve up to `market.saleCap`, then graduate to a Raydium CPMM pool. The same calls work on them: `quoteBuy`, `quoteSell`, `spotPrice`, `buildBuyTransaction` and `buildSellTransaction` switch to the `launch_buy` / `launch_sell` instructions on their own.
+
+`getMarket` makes one extra read on launch markets, the vault balance (`market.vaultBalance`). Quotes still need no RPC call.
+
+```typescript
+const buy = sdk.quoteBuy(market, 2_000_000_000n); // 2 SOL in
+if ("capHit" in buy && buy.capHit) {
+  // This buy fills the last tokens of the sale: only buy.cashUsed is spent,
+  // the rest of the SOL stays in the wallet.
+}
+```
+
+Trading on the program depends on `market.launchPhase`:
+
+| `launchPhase` | | Buy / sell |
+|---|---|---|
+| `0` bonding | the curve is selling | yes |
+| `1` graduating | the sale cap is filled and the migration is pending | the builders throw |
+| `2` graduated | the token trades on its Raydium pool, at `v2.launchPoolPda(market.address)` | the builders throw with the pool address |
+
+Deposit, borrow and leverage don't exist on launch markets, so those builders throw. Creators claim their fees with `buildClaimCreatorFeesTransaction`, as on any market.
+
 ### Lending, leverage and creator fees
 
 Every builder returns an unsigned `VersionedTransaction`.

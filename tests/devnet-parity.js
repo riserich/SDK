@@ -14,6 +14,7 @@ const MARKETS = (process.env.MARKETS || [
   'CzS44gQ9BHdKYhDHSuWBjPao7LMZRfswpUBcFzUPSKX9', // live ramp, capacity-clamped exits
   'EwEFqSf8PaSP2axkqtkYtSfaATQiWzpu4WT7TPazYHVH', // live ramp
   'GrP3TSCJt9fdHtM524NJtyUkzQf8y8NRUmL7qbpHdzXh', // SOL collateral
+  '7M1aS71uLHfDRf5Mxrx68Jr9Nf9Mek8Qc91B1d9hxkxZ', // launch market, bonding (launch_buy / launch_sell)
 ].join(',')).split(',').map((s) => new PublicKey(s.trim()));
 
 const amountOf = (acc) => (acc ? Buffer.from(acc.data[0], 'base64').readBigUInt64LE(64) : 0n);
@@ -47,7 +48,11 @@ async function run() {
     const unit = 10n ** BigInt(m.tokenDecimals);
     console.log(`\n${marketAddr.toBase58().slice(0, 6)}… supply ${m.tokenSupply} ${isSol ? '(SOL)' : ''} spot ${sdk.spotPriceNumber(m).toFixed(6)}`);
 
+    const isLaunch = m.marketKind === v2.MARKET_KIND_LAUNCH;
+    if (isLaunch) console.log(`  launch market: phase ${m.launchPhase}, sold ${m.tokenSupply} / cap ${m.saleCap}, vault ${m.vaultBalance}`);
     const buys = isSol ? [unit / 100n, unit / 10n] : [5n * unit, 500n * unit, 50_000n * unit];
+    // Launch: a buy far above what the rest of the cap costs must partial-fill exactly to the cap.
+    if (isLaunch && m.launchPhase === v2.LAUNCH_PHASE.BONDING) buys.push(100n * unit);
     for (const cash of buys) {
       let q;
       try { q = sdk.quoteBuy(m, cash); } catch (e) { console.log(`  buy ${cash}: quote refused (${e.message})`); skipped++; continue; }
@@ -55,9 +60,11 @@ async function run() {
       const s = await simulate(sdk, tx, [tokenAta]);
       if (s.err) { console.log(`  buy ${cash}: SIM FAIL ${s.err}`); bad++; continue; }
       const got = amountOf(s.accounts[0]) - tokPre;
-      const match = got === q.tokenOut;
+      const capOk = !q.capHit || q.tokenOut === m.saleCap - m.tokenSupply;
+      const match = got === q.tokenOut && capOk;
       match ? ok++ : bad++;
-      console.log(`  buy  ${String(cash).padStart(14)}: quote ${q.tokenOut} | chain ${got} ${match ? '✓' : '✗ MISMATCH'}  (${s.cu} CU)`);
+      const cap = q.capHit ? ` [cap hit: cashUsed ${q.cashUsed} of ${cash}${capOk ? '' : ', ✗ not the remaining cap'}]` : '';
+      console.log(`  buy  ${String(cash).padStart(14)}: quote ${q.tokenOut} | chain ${got} ${match ? '✓' : '✗ MISMATCH'}  (${s.cu} CU)${cap}`);
     }
 
     if (tokPre === 0n) { console.log('  sells skipped: wallet holds no tokens'); skipped++; continue; }

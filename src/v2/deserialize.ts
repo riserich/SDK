@@ -1,8 +1,6 @@
 // Manual decoder for the on-chain Rise Pro `Market` account (v2 layout).
 //
-// Used by RECONCILIATION paths only (the v2 cron's drift check, one-shot
-// backfills) — the indexer itself never reads accounts, it is event-sourced.
-// Field order mirrors idl/rise_pro.json types.Market exactly.
+// Field order mirrors the Rise Pro IDL `types.Market` exactly.
 
 import { PublicKey } from "@solana/web3.js";
 
@@ -67,6 +65,8 @@ export interface RiseProMarketAccount {
   feesTeam: number;
   feesCreator: number;
   feesFloor: number;
+  /** Minimum cash leg of a trade (raw `mint_main` units). */
+  minTradeAmount: bigint;
   qMaxBps: number;
   charParams: [bigint, bigint, bigint, bigint];
   floorPrice: bigint;
@@ -106,6 +106,15 @@ export interface RiseProMarketAccount {
   reflexiveStepBps: number; // u16
   lastRaiseSlot: bigint; // u64
   minRampHeadroomX: bigint; // u64
+  // Launch mode (all 0 on classic curve markets)
+  /** 0 = classic curve market, 1 = launch market. */
+  marketKind: number;
+  /** Launch markets only: 0 = bonding, 1 = sale cap filled / graduating, 2 = graduated. */
+  launchPhase: number;
+  /** Launch markets only: tokens sold on the curve before graduation (raw units). */
+  saleCap: bigint;
+  /** Launch markets only: slot of the Raydium migration (0 until graduated). */
+  graduatedSlot: bigint;
 }
 
 /** Decode a raw Market account (including the 8-byte discriminator). */
@@ -138,7 +147,7 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
   const feesTeam = r.u16();
   const feesCreator = r.u16();
   const feesFloor = r.u16();
-  r.u64(); // min_trade_amount
+  const minTradeAmount = r.u64();
   const qMaxBps = r.u16();
   const charParams: [bigint, bigint, bigint, bigint] = [
     r.i128(), r.i128(), r.i128(), r.i128(),
@@ -180,6 +189,11 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
   const yRef = r.i128();
   const healLowX = r.u64();
   const healLocked = r.u64();
+  const marketKind = r.u8();
+  const launchPhase = r.u8();
+  const saleCap = r.u64();
+  r.u8(); // pool_authority_bump
+  const graduatedSlot = r.u64();
 
   return {
     hingeX,
@@ -190,7 +204,7 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
     healLocked,
     curveKind, tokenDecimals, flags, creator, mintToken, mintMain, tokenProgramMain,
     feeConfigVersion, buyFeeMbps, sellFeeMbps, borrowFeeMbps,
-    feesTeam, feesCreator, feesFloor, qMaxBps, charParams,
+    feesTeam, feesCreator, feesFloor, minTradeAmount, qMaxBps, charParams,
     floorPrice, rampStartX, rampScalar, x2Cached, mX1Cached, yShift,
     tokenSupply, floorReserve, priceReserve, totalDebt, totalCollateral,
     totalFeesFloor, totalFeesCreator, totalFeesTeam, cumNetInflow,
@@ -198,5 +212,6 @@ export function decodeRiseProMarket(data: Buffer): RiseProMarketAccount | null {
     stateSeq,
     peakPrice, peakSlot, reflexiveArmRatioMbps, reflexiveBandMbps,
     reflexiveStepBps, lastRaiseSlot, minRampHeadroomX,
+    marketKind, launchPhase, saleCap, graduatedSlot,
   };
 }
