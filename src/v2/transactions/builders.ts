@@ -1,9 +1,14 @@
 // The user-facing Rise Pro instruction builders — ported verbatim from
 // the backend (account orders proven by devnet simulation). Each returns
 // { ix, ixs, pdas }: use `ixs` (it carries the WSOL wrap/unwrap legs when the
-// collateral is native SOL).
+// collateral is native SOL, and on buy / sell / launch_buy / launch_sell the
+// idempotent creation of the receiving account, which the program no longer
+// creates).
 import { PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT,
+  createAssociatedTokenAccountIdempotentInstruction,
+} from "@solana/spl-token";
 import { SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { DISC } from "../constants";
@@ -49,7 +54,11 @@ export function buildBuy(
   );
   return {
     ix,
-    ixs: [...wrapNativeIxs(buyer, mintMain, cashIn, tokenProgramMain), ix],
+    ixs: [
+      createAssociatedTokenAccountIdempotentInstruction(buyer, buyerToken, buyer, mintToken, TOKEN_2022_PROGRAM_ID),
+      ...wrapNativeIxs(buyer, mintMain, cashIn, tokenProgramMain),
+      ix,
+    ],
     pdas: { buyerCash: buyerCash.toBase58(), buyerToken: buyerToken.toBase58() },
   };
 }
@@ -87,7 +96,11 @@ export function buildSell(
   );
   return {
     ix,
-    ixs: [ix, ...unwrapNativeIxs(seller, mintMain, tokenProgramMain)],
+    ixs: [
+      createAssociatedTokenAccountIdempotentInstruction(seller, sellerCash, seller, mintMain, tokenProgramMain),
+      ix,
+      ...unwrapNativeIxs(seller, mintMain, tokenProgramMain),
+    ],
     pdas: { sellerCash: sellerCash.toBase58(), sellerToken: sellerToken.toBase58() },
   };
 }
@@ -324,7 +337,7 @@ export function buildClaimCreatorFees(
 // the market inventory (the collateral_vault slot), no reflection vault.
 // ---------------------------------------------------------------------------
 
-/** `launch_buy`: wrap → buy → unwrap. The unwrap also refunds the unused part
+/** `launch_buy`: create token ATA → wrap → buy → unwrap. The unwrap also refunds the unused part
  *  of `cashIn` when the buy fills the sale cap (partial fill). */
 export function buildLaunchBuy(
   buyer: PublicKey,
@@ -358,6 +371,7 @@ export function buildLaunchBuy(
   return {
     ix,
     ixs: [
+      createAssociatedTokenAccountIdempotentInstruction(buyer, buyerToken, buyer, mintToken, TOKEN_2022_PROGRAM_ID),
       ...wrapNativeIxs(buyer, NATIVE_MINT, cashIn, TOKEN_PROGRAM_ID),
       ix,
       ...unwrapNativeIxs(buyer, NATIVE_MINT, TOKEN_PROGRAM_ID),
@@ -366,7 +380,9 @@ export function buildLaunchBuy(
   };
 }
 
-/** `launch_sell`: sell → unwrap (the program creates the WSOL ATA if needed). */
+/** `launch_sell`: create WSOL ATA (idempotent; the program no longer creates
+ *  it) → sell → unwrap. `k_hint` is sent as None (the program solves any
+ *  floor-band refit itself). */
 export function buildLaunchSell(
   seller: PublicKey,
   market: PublicKey,
@@ -394,11 +410,16 @@ export function buildLaunchSell(
       RO(SystemProgram.programId),
       ...eventCpi(),
     ],
-    Buffer.concat([DISC.launch_sell, u64le(tokenIn), u64le(minCashOut)]),
+    // k_hint: Option<u128> = None.
+    Buffer.concat([DISC.launch_sell, u64le(tokenIn), u64le(minCashOut), Buffer.from([0])]),
   );
   return {
     ix,
-    ixs: [ix, ...unwrapNativeIxs(seller, NATIVE_MINT, TOKEN_PROGRAM_ID)],
+    ixs: [
+      createAssociatedTokenAccountIdempotentInstruction(seller, sellerCash, seller, NATIVE_MINT, TOKEN_PROGRAM_ID),
+      ix,
+      ...unwrapNativeIxs(seller, NATIVE_MINT, TOKEN_PROGRAM_ID),
+    ],
     pdas: { sellerCash: sellerCash.toBase58(), sellerToken: sellerToken.toBase58() },
   };
 }

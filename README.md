@@ -103,6 +103,8 @@ Launch markets (`market.marketKind === 1`) are fixed-supply SOL tokens. They sel
 
 `getMarket` makes one extra read on launch markets, the vault balance (`market.vaultBalance`). Quotes still need no RPC call.
 
+Since 0.7.0, launch quotes run on the market's own current curve (floor band, ramp, then the launch curve, refitted on-chain after a sell lands in the floor band), and the builders create the receiving token account first, as the program no longer does.
+
 ```typescript
 const buy = sdk.quoteBuy(market, 2_000_000_000n); // 2 SOL in
 if ("capHit" in buy && buy.capHit) {
